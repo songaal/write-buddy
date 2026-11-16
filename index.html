@@ -32,7 +32,7 @@ kbd{font-family:inherit;font-size:11.5px;border:1px solid var(--line);border-bot
 .paper{position:relative;background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.05)}
 #editor{position:relative}
 .layer,textarea{
-  font-family:"Source Serif 4",Georgia,serif;font-size:19px;line-height:1.8;
+  font-family:"Source Serif 4",Georgia,serif;font-size:18.5px;line-height:2.55;
   padding:26px 28px 56px;margin:0;border:0;width:100%;
   white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;letter-spacing:0;tab-size:4;
   font-variant-ligatures:none;
@@ -40,10 +40,18 @@ kbd{font-family:inherit;font-size:11.5px;border:1px solid var(--line);border-bot
 .layer{position:absolute;inset:0;color:transparent;pointer-events:none;overflow:hidden}
 textarea{position:relative;display:block;background:transparent;color:var(--ink);resize:none;outline:none;min-height:360px;overflow:hidden;caret-color:var(--hint);-webkit-appearance:none;appearance:none;border-radius:16px}
 textarea::placeholder{color:var(--ghost)}
-.u-err{text-decoration:underline wavy var(--err);text-decoration-thickness:1.5px;text-underline-offset:5px;text-decoration-skip-ink:none}
+.u-err{text-decoration:underline wavy var(--err);text-decoration-thickness:1.5px;text-underline-offset:3px;text-decoration-skip-ink:none}
 .u-err.act{background:var(--errbg);border-radius:3px}
 .rep{background:var(--hintbg);border-radius:4px;box-shadow:0 0 0 2px var(--hintbg)}
 .ghost{color:var(--ghost)}
+#anno{position:absolute;inset:0;pointer-events:none;z-index:2}
+.an{position:absolute;pointer-events:auto;cursor:pointer;white-space:nowrap;font-family:"Noto Sans KR",system-ui,sans-serif;font-size:12px;line-height:1.35;font-weight:700;color:#15803d;background:var(--paper);border-radius:4px;padding:0 3px;transform:translateX(-3px)}
+.an:hover{background:rgba(34,197,94,.16)}
+.an.del{color:var(--err)}
+.an.nat{color:var(--nat);font-weight:500}
+.an.nat:hover{background:var(--natbg)}
+.an.wait{color:var(--muted);font-weight:400;cursor:default}
+@media (prefers-color-scheme:dark){.an{color:#4ade80}}
 #hintBtn{position:absolute;z-index:3;width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:var(--paper);box-shadow:0 2px 8px rgba(0,0,0,.12);display:none;align-items:center;justify-content:center;cursor:pointer;font-size:14px;padding:0;transition:transform .12s}
 #hintBtn:hover{transform:scale(1.1)}
 #hintBtn.busy{animation:pulse 1s infinite}
@@ -101,7 +109,7 @@ textarea::placeholder{color:var(--ghost)}
 .legend span{display:inline-block;margin-right:14px}
 .dot{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:4px}
 #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--chip);color:var(--chipink);padding:9px 14px;border-radius:10px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
-@media (max-width:560px){.layer,textarea{font-size:18px;padding:20px 18px 56px}}
+@media (max-width:560px){.layer,textarea{font-size:17px;padding:18px 16px 56px}}
 </style>
 </head>
 <body>
@@ -124,6 +132,7 @@ textarea::placeholder{color:var(--ghost)}
       <div class="layer" id="deco" aria-hidden="true"></div>
       <div class="layer" id="ghost" aria-hidden="true"></div>
       <textarea id="ta" spellcheck="false" autocapitalize="sentences" placeholder="Start writing in English… (예: I want to 사과하다 for being late)"></textarea>
+      <div id="anno"></div>
       <button id="hintBtn" title="힌트 (⌘;)" aria-label="힌트">💡</button>
       <div class="pop" id="chip"></div>
       <div class="panel" id="panel"></div>
@@ -132,7 +141,7 @@ textarea::placeholder{color:var(--ghost)}
   <div class="status"><span id="status">준비 중…</span><span id="count"></span></div>
   <div class="legend">
     <span><i class="dot" style="background:var(--hintbg);box-shadow:0 0 0 1px var(--hint)"></i>힌트로 바뀔 부분</span>
-    <span><i class="dot" style="background:var(--errbg);box-shadow:0 0 0 1px var(--err)"></i>문법 교정 — 문장 바로 아래에 표시 (<kbd>Tab</kbd> 모두 적용 · <kbd>Esc</kbd> 닫기)</span>
+    <span><i class="dot" style="background:var(--errbg);box-shadow:0 0 0 1px var(--err)"></i>문법 교정 — 틀린 단어 바로 아래에 고친 말 (클릭 또는 <kbd>Tab</kbd>으로 적용)</span>
     <span><i class="dot" style="background:var(--natbg);box-shadow:0 0 0 1px var(--nat)"></i>더 자연스러운 표현</span>
   </div>
 </div>
@@ -379,9 +388,16 @@ function cleanReview(r, s){
 }
 
 let reviewT, reviewing = false;
-function scheduleReview(){ clearTimeout(reviewT); reviewT = setTimeout(runReviews, 1300); }
+let rerun = false, quickT = null;
+function scheduleReview(){
+  // a sentence just ended → review right away; later keystrokes don't cancel it
+  const before = ta.value.slice(0, ta.selectionEnd);
+  if(/[.!?]["'”’)\]]*\s*\S{0,3}$/.test(before) && !quickT) quickT = setTimeout(() => { quickT = null; runReviews(); }, 250);
+  clearTimeout(reviewT); reviewT = setTimeout(runReviews, 1000);
+}
 async function runReviews(){
-  if(!haveAI() || reviewing) return;
+  if(!haveAI()) return;
+  if(reviewing){ rerun = true; return; }
   reviewing = true;
   try{
     while(true){
@@ -400,7 +416,7 @@ async function runReviews(){
       }
       save(); render();
     }
-  }finally{ reviewing = false; setStatus(); render(); }
+  }finally{ reviewing = false; setStatus(); render(); if(rerun){ rerun = false; scheduleReview(); } }
 }
 
 function applyEdit(item){
@@ -447,7 +463,7 @@ function applyAllEdits(key){
   onEdit();
 }
 function hidePanel(key){
-  const r = state.reviews.get(key); if(!r) return;
+  const r = state.reviews.get(key); state.openKey = null; if(!r) return;
   r.panelHidden = true; save(); render();
 }
 function applyNatural(key){
@@ -475,28 +491,34 @@ function render(){
   const h = state.hint, hasOpts = !!(h && h.options.length);
   let ra = -1, rb = -1; if(hasOpts && h.replace){ rb = h.caret; ra = rb - h.replace.length; }
 
-  // sentence whose correction panel shows: the one at/just before the caret (same paragraph)
-  let focusSt = null;
+  // panel (details) only for a sentence the caret is inside, or one opened by clicking
+  let panelSt = null, lastSt = null;
+  const hasIssues = r => r && r.status === 'done' && (r.edits.length || (r.natural && !r.natDismissed));
+  if(state.openKey) panelSt = sents.find(st => st.s === state.openKey) || null;
   if(!h && ta.selectionStart === ta.selectionEnd){
-    let last = null; for(const st of sents){ if(st.start <= caret) last = st; }
-    if(last){
-      const r = state.reviews.get(last.s);
-      const between = caret > last.end ? v.slice(last.end, caret) : '';
-      if(r && r.status === 'done' && !r.panelHidden && (r.edits.length || (r.natural && !r.natDismissed)) && !between.includes('\n')) focusSt = last;
+    for(const st of sents){ if(st.start <= caret) lastSt = st; }
+    if(!panelSt){
+      const inside = sents.find(st => caret > st.start && caret < st.end);
+      const r = inside && state.reviews.get(inside.s);
+      if(hasIssues(r) && !r.panelHidden) panelSt = inside;
     }
+    if(lastSt){ const r = state.reviews.get(lastSt.s); const btw = v.slice(lastSt.end, caret); if(!hasIssues(r) || !r.edits.length || btw.includes('\n')) lastSt = null; }
   }
-  state.panelKey = focusSt ? focusSt.s : null;
+  if(h) panelSt = null;
+  state.panelKey = panelSt ? panelSt.s : null;
+  state.lastKey = lastSt ? lastSt.s : null;
+  const seIdx = new Map(); sents.forEach((st, k) => seIdx.set(st.end, k));
 
   let html = '', buf = '', ck = null;
   const flush = () => {
     if(!buf) return;
-    const [t, r] = ck.split('|'); const c = [];
-    if(t !== '-1') c.push('u-err');
+    const [t, r] = ck.split('|'); const c = []; let attr = '';
+    if(t !== '-1'){ c.push('u-err'); attr = ` data-e="${t}"`; }
     if(r === '1') c.push('rep');
-    html += `<span class="${c.join(' ')}">${esc(buf)}</span>`; buf = '';
+    html += `<span class="${c.join(' ')}"${attr}>${esc(buf)}</span>`; buf = '';
   };
   for(let i = 0; i <= n; i++){
-    if(focusSt && i === focusSt.end){ flush(); html += '<span id="send">⁠</span>'; }
+    if(seIdx.has(i)){ flush(); html += `<span data-se="${seIdx.get(i)}">\u2060</span>`; }
     if(i === caret){ flush(); html += '<span id="caret">⁠</span>'; }
     if(i === n) break;
     const key = tag[i] + '|' + (i >= ra && i < rb ? 1 : 0);
@@ -546,8 +568,9 @@ function render(){
 
   // correction panel right under the sentence
   let extra = 0;
-  if(focusSt){
-    const key = focusSt.s, r = state.reviews.get(key);
+  renderAnno(sents, edits, er);
+  if(panelSt){
+    const key = panelSt.s, r = state.reviews.get(key);
     const pos = editPositions(key, r.edits);
     const showNat = r.natural && !r.natDismissed;
     let out = '';
@@ -569,8 +592,8 @@ function render(){
     panel.innerHTML = out;
     panel.classList.toggle('natonly', !pos.length);
     panel.style.display = 'block';
-    const sm = document.getElementById('send').getBoundingClientRect();
-    const top = sm.top - er.top + (sm.height || lh) + 6;
+    const sm = deco.querySelector(`[data-se="${sents.indexOf(panelSt)}"]`).getBoundingClientRect();
+    const top = sm.top - er.top + (sm.height || lh) + 22;
     panel.style.top = top + 'px';
     extra = Math.max(0, top + panel.offsetHeight + 12 - ta.offsetHeight);
   } else panel.style.display = 'none';
@@ -578,6 +601,25 @@ function render(){
 
   const nNat = sents.filter(st => { const r = state.reviews.get(st.s); return r && r.natural && !r.natDismissed; }).length;
   $('#count').textContent = (edits.length || nNat) ? `교정 ${edits.length} · 표현 제안 ${nNat}` : '';
+}
+function renderAnno(sents, edits, er){
+  const W = ed.clientWidth; let out = '';
+  edits.forEach((x, idx) => {
+    const sp = deco.querySelector(`[data-e="${idx}"]`); if(!sp) return;
+    const rc = sp.getClientRects()[0]; if(!rc) return;
+    const left = Math.max(2, Math.min(rc.left - er.left, W - 90)), top = rc.bottom - er.top + 3;
+    const label = x.e.to ? x.e.to : '삭제';
+    out += `<span class="an${x.e.to ? '' : ' del'}" data-k="${esc(x.key)}" data-i="${x.i}" style="left:${left}px;top:${top}px" title="${esc((x.e.why || '') + ' · 클릭하면 적용')}">${esc(label)}</span>`;
+  });
+  sents.forEach((st, k) => {
+    const r = state.reviews.get(st.s); if(!r) return;
+    const m = deco.querySelector(`[data-se="${k}"]`); if(!m) return;
+    const rc = m.getBoundingClientRect();
+    const left = Math.max(4, Math.min(rc.left - er.left - 70, W - 110)), top = rc.bottom - er.top + 3;
+    if(r.status === 'pending') out += `<span class="an wait" style="left:${left + 30}px;top:${top}px">검토 중…</span>`;
+    else if(r.natural && !r.natDismissed) out += `<span class="an nat" data-open="${esc(st.s)}" style="left:${left}px;top:${top}px" title="${esc(r.natural)}">✨ 더 자연스럽게</span>`;
+  });
+  $('#anno').innerHTML = out;
 }
 function placePop(el, x, y, W){
   el.style.left = '0px'; el.style.top = y + 'px';
@@ -595,14 +637,15 @@ ta.addEventListener('keydown', e => {
   if(state.hint){
     if(e.key === 'Tab' && state.hint.options.length){ e.preventDefault(); acceptHint(); return; }
     if(e.key === 'Escape'){ e.preventDefault(); abortHint(); state.hint = null; render(); return; }
-  } else if(state.panelKey){
-    const r = state.reviews.get(state.panelKey);
-    if(e.key === 'Tab' && r){ e.preventDefault(); if(r.edits.length) applyAllEdits(state.panelKey); else if(r.natural) applyNatural(state.panelKey); return; }
-    if(e.key === 'Escape'){ e.preventDefault(); hidePanel(state.panelKey); return; }
+  } else if(state.panelKey || state.lastKey){
+    const key = state.panelKey || state.lastKey, r = state.reviews.get(key);
+    if(e.key === 'Tab' && r){ e.preventDefault(); if(r.edits.length) applyAllEdits(key); else if(r.natural && state.panelKey) applyNatural(key); return; }
+    if(e.key === 'Escape' && state.panelKey){ e.preventDefault(); hidePanel(state.panelKey); return; }
   }
 });
 function onSel(){
   if(state.hint && ta.selectionEnd !== state.hint.caret){ abortHint(); state.hint = null; }
+  if(ta.selectionEnd !== state.lastCaret){ state.lastCaret = ta.selectionEnd; state.openKey = null; }
   render();
 }
 ['keyup','click','select','focus'].forEach(ev => ta.addEventListener(ev, onSel));
@@ -618,6 +661,13 @@ chip.addEventListener('click', e => {
   if(a === 'accept') acceptHint();
   else if(a === 'next') requestHint(1);
   else if(a === 'close'){ abortHint(); state.hint = null; render(); }
+});
+const anno = $('#anno');
+anno.addEventListener('pointerdown', keepFocus); anno.addEventListener('mousedown', keepFocus);
+anno.addEventListener('click', e => {
+  const t = e.target.closest('.an'); if(!t) return;
+  if(t.dataset.open){ const r = state.reviews.get(t.dataset.open); if(r) r.panelHidden = false; state.openKey = t.dataset.open; render(); return; }
+  if(t.dataset.k != null){ ta.focus(); applyEdit({key:t.dataset.k, i:+t.dataset.i}); }
 });
 panel.addEventListener('click', e => {
   const a = e.target.closest('button')?.dataset.a; const key = state.panelKey; if(!a || !key) return;

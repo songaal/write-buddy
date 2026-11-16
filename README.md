@@ -5,7 +5,7 @@ An English writing assistant for Korean learners: hints when you get stuck, plus
 ## Features
 - **Hint:** press `⌘ ;` (Ctrl + ; on Windows) or the 💡 button next to the cursor, and a faint next-word suggestion appears. Press again for a different word, `Tab` to accept, `Esc` to dismiss.
 - **Korean words allowed:** if you don't know a word, write it in Korean, e.g. `I want to 사과하다`. The hint suggests the English word to replace it.
-- **Grammar correction:** finish a sentence with `.`, `?` or `!`. Errors get a red wavy underline, and the fix appears right below the sentence. `Tab` applies all fixes.
+- **Grammar correction:** finish a sentence with `.`, `?` or `!`. The sentence is checked automatically even if you keep typing. Errors get a red wavy underline, and the corrected word appears right below the wrong one. Click it, or press `Tab`, to apply.
 - **More natural phrasing:** only for sentences that sound clearly awkward, it suggests a more natural version.
 - **Correction level:** choose between "꼭 필요한 것만" (only what's necessary) and "조금 더" (a bit more).
 
